@@ -32,3 +32,10 @@ export interface ChatMessage {
   text: string;
   timestamp: string;
 }
+
+export interface SupabaseConfig {
+  url: string;
+  anonKey: string;
+  bucket: string;
+}
+

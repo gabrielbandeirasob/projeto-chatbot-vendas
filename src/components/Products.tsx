@@ -1,5 +1,5 @@
 import React, { useState, FormEvent } from "react";
-import { Product, Category } from "../types";
+import { Product, Category, SupabaseConfig } from "../types";
 import { 
   Plus, 
   Search, 
@@ -12,7 +12,10 @@ import {
   Check, 
   X,
   XCircle,
-  HelpCircle
+  HelpCircle,
+  UploadCloud,
+  Globe,
+  Sliders
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -48,6 +51,81 @@ export default function Products({
   const [formFeatured, setFormFeatured] = useState(false);
   const [formDescription, setFormDescription] = useState("");
 
+  // Supabase Integration States
+  const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>(() => {
+    try {
+      const saved = localStorage.getItem("shop_master_supabase_config");
+      return saved ? JSON.parse(saved) : { url: "", anonKey: "", bucket: "produtos" };
+    } catch {
+      return { url: "", anonKey: "", bucket: "produtos" };
+    }
+  });
+  const [imgSourceType, setImgSourceType] = useState<"url" | "upload">("url");
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadSuccess, setUploadSuccess] = useState(false);
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
+
+  const handleUpdateSupabaseConfig = (key: keyof SupabaseConfig, value: string) => {
+    const updated = {
+      ...supabaseConfig,
+      [key]: value
+    };
+    setSupabaseConfig(updated);
+    localStorage.setItem("shop_master_supabase_config", JSON.stringify(updated));
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      setUploadError("O tamanho da imagem excede o limite de 5MB.");
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadError(null);
+    setUploadSuccess(false);
+
+    try {
+      const { url, anonKey, bucket } = supabaseConfig;
+      if (!url || !anonKey) {
+        throw new Error("Por favor, configure as credenciais do seu Supabase na gaveta abaixo antes de enviar.");
+      }
+
+      const timestamp = Date.now();
+      const sanitizedName = file.name.replace(/[^a-zA-Z0-9.]/g, "_");
+      const fileName = `${timestamp}-${sanitizedName}`;
+      const cleanUrl = url.replace(/\/$/, "");
+      const uploadUrl = `${cleanUrl}/storage/v1/object/${bucket}/${fileName}`;
+
+      const response = await fetch(uploadUrl, {
+        method: "POST",
+        headers: {
+          "apikey": anonKey,
+          "Authorization": `Bearer ${anonKey}`,
+          "Content-Type": file.type
+        },
+        body: file
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Erro no Supabase: ${errText || response.statusText}`);
+      }
+
+      const publicUrl = `${cleanUrl}/storage/v1/object/public/${bucket}/${fileName}`;
+      setFormImageUrl(publicUrl);
+      setUploadSuccess(true);
+    } catch (err: any) {
+      console.error("Upload error:", err);
+      setUploadError(err.message || "Erro inesperado ao realizar o upload.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const handleOpenAddForm = () => {
     setEditingProduct(null);
     setFormName("");
@@ -58,6 +136,9 @@ export default function Products({
     setFormGender("Unissex");
     setFormFeatured(false);
     setFormDescription("");
+    setUploadError(null);
+    setUploadSuccess(false);
+    setImgSourceType("url");
     setIsFormOpen(true);
   };
 
@@ -71,6 +152,9 @@ export default function Products({
     setFormGender(product.gender);
     setFormFeatured(product.featured);
     setFormDescription(product.description);
+    setUploadError(null);
+    setUploadSuccess(false);
+    setImgSourceType(product.imageUrl.includes("supabase.co") ? "upload" : "url");
     setIsFormOpen(true);
   };
 
@@ -443,17 +527,114 @@ export default function Products({
                 </div>
               </div>
 
-              {/* Cover Image URL */}
+              {/* Cover Image Source Selector */}
               <div>
-                <label className="block text-xs font-semibold text-zinc-700 mb-1">Link da Imagem (URL)</label>
-                <input
-                  type="url"
-                  placeholder="https://images.unsplash.com/photo-..."
-                  value={formImageUrl}
-                  onChange={(e) => setFormImageUrl(e.target.value)}
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-xs focus:outline-hidden focus:border-zinc-400 focus:bg-white text-zinc-805 font-mono text-[11px]"
-                />
-                <p className="text-[10px] text-zinc-400 mt-1">Recomendamos links públicos de imagens (Unsplash, etc.) para visualização perfeita.</p>
+                <label className="block text-xs font-semibold text-zinc-700 mb-2">Origem da Foto do Produto</label>
+                <div className="flex gap-2 p-1 bg-zinc-100 rounded-lg border border-zinc-200 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => setImgSourceType("url")}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                      imgSourceType === "url"
+                        ? "bg-white text-zinc-950 shadow-3xs"
+                        : "text-zinc-500 hover:text-zinc-900"
+                    }`}
+                  >
+                    <Globe className="w-3.5 h-3.5" />
+                    Link Externo (URL)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImgSourceType("upload")}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                      imgSourceType === "upload"
+                        ? "bg-white text-zinc-950 shadow-3xs"
+                        : "text-zinc-500 hover:text-zinc-900"
+                    }`}
+                  >
+                    <UploadCloud className="w-3.5 h-3.5" />
+                    Upload Supabase
+                  </button>
+                </div>
+
+                {imgSourceType === "url" ? (
+                  <div className="space-y-1">
+                    <input
+                      type="url"
+                      placeholder="https://images.unsplash.com/photo-..."
+                      value={formImageUrl}
+                      onChange={(e) => setFormImageUrl(e.target.value)}
+                      className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-xs focus:outline-hidden focus:border-zinc-400 focus:bg-white text-zinc-805 font-mono text-[11px]"
+                    />
+                    <p className="text-[10px] text-zinc-400">Insira a URL pública da foto do produto.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {/* Supabase config reminder if not configured */}
+                    {(!supabaseConfig.url || !supabaseConfig.anonKey) ? (
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-left">
+                        <p className="text-[11px] font-semibold text-amber-800 flex items-center gap-1.5">
+                          ⚠️ Supabase Não Configurado
+                        </p>
+                        <p className="text-[10px] text-amber-600 mt-1 leading-relaxed">
+                          Para fazer upload direto, configure suas chaves do Supabase na gaveta expansível abaixo.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="border-2 border-dashed border-zinc-200 hover:border-zinc-350 rounded-xl p-5 text-center bg-zinc-50/50 hover:bg-zinc-50 transition-colors relative">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          id="supabase-file-upload"
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                          onChange={handleFileChange}
+                          disabled={isUploading}
+                        />
+                        <div className="space-y-1 pointer-events-none">
+                          <UploadCloud className={`w-8 h-8 text-zinc-400 mx-auto ${isUploading ? "animate-bounce" : ""}`} />
+                          <p className="text-xs font-semibold text-zinc-700">
+                            {isUploading ? "Enviando arquivo para o Supabase..." : "Clique ou arraste a imagem aqui"}
+                          </p>
+                          <p className="text-[10px] text-zinc-455">PNG, JPG, WEBP de até 5MB</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Upload progress & status */}
+                    {uploadError && (
+                      <div className="bg-rose-50 border border-rose-100 text-rose-700 px-3 py-2 rounded-lg text-[10px] font-semibold">
+                        ❌ {uploadError}
+                      </div>
+                    )}
+                    
+                    {uploadSuccess && (
+                      <div className="bg-emerald-50 border border-emerald-100 text-emerald-700 px-3 py-2 rounded-lg text-[10px] font-semibold flex items-center gap-1.5">
+                        <Check className="w-3.5 h-3.5 text-emerald-600" /> Foto carregada e salva com sucesso no Supabase!
+                      </div>
+                    )}
+
+                    {/* Image Preview Thumbnail */}
+                    {formImageUrl && (
+                      <div className="flex items-center gap-3 bg-zinc-50 border border-zinc-150 p-2.5 rounded-xl">
+                        <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-100 shrink-0 border border-zinc-200">
+                          <img src={formImageUrl} alt="Preview" className="w-full h-full object-cover" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <span className="text-[10px] font-bold text-zinc-450 block uppercase tracking-wider">URL Atual da Foto</span>
+                          <p className="text-[10px] font-mono text-zinc-700 truncate" title={formImageUrl}>{formImageUrl}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setFormImageUrl("")}
+                          className="text-zinc-400 hover:text-rose-600 p-1 transition-colors"
+                          title="Remover foto"
+                        >
+                          <XCircle className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Description */}
@@ -484,6 +665,75 @@ export default function Products({
                   <span className="text-[10px] text-zinc-500">Stella prioriza produtos de destaque ao dar conselhos para clientes indecisos.</span>
                 </div>
               </label>
+
+              {/* Supabase configuration settings drawer */}
+              <div className="border-t border-zinc-100 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setIsConfigOpen(!isConfigOpen)}
+                  className="w-full flex items-center justify-between text-xs font-semibold text-zinc-500 hover:text-zinc-800 transition-colors py-1 cursor-pointer select-none"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Sliders className="w-3.5 h-3.5" />
+                    Configurar Conexão do Supabase Storage
+                  </span>
+                  <span className="text-[10px]">{isConfigOpen ? "▲ Recolher" : "▼ Expandir"}</span>
+                </button>
+
+                <AnimatePresence>
+                  {isConfigOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="overflow-hidden mt-3 space-y-3 bg-zinc-50 p-3 rounded-xl border border-zinc-150"
+                    >
+                      <p className="text-[10px] text-zinc-505 leading-relaxed">
+                        Insira as credenciais do seu projeto Supabase para ativar o upload de imagens. As fotos serão salvas em um bucket público para que seu chatbot do n8n possa consultá-las.
+                      </p>
+
+                      <div className="space-y-2">
+                        {/* URL */}
+                        <div>
+                          <label className="block text-[10px] font-bold text-zinc-650 uppercase mb-1">Supabase Project URL</label>
+                          <input
+                            type="url"
+                            placeholder="Ex: https://xyzcompany.supabase.co"
+                            value={supabaseConfig.url}
+                            onChange={(e) => handleUpdateSupabaseConfig("url", e.target.value)}
+                            className="w-full bg-white border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-hidden focus:border-zinc-400 text-zinc-800 font-mono"
+                          />
+                        </div>
+
+                        {/* Anon Key */}
+                        <div>
+                          <label className="block text-[10px] font-bold text-zinc-650 uppercase mb-1">Supabase Anon Key</label>
+                          <input
+                            type="password"
+                            placeholder="Sua anon / public key..."
+                            value={supabaseConfig.anonKey}
+                            onChange={(e) => handleUpdateSupabaseConfig("anonKey", e.target.value)}
+                            className="w-full bg-white border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-hidden focus:border-zinc-400 text-zinc-800 font-mono"
+                          />
+                        </div>
+
+                        {/* Bucket Name */}
+                        <div>
+                          <label className="block text-[10px] font-bold text-zinc-650 uppercase mb-1">Bucket de Destino</label>
+                          <input
+                            type="text"
+                            placeholder="Ex: produtos"
+                            value={supabaseConfig.bucket}
+                            onChange={(e) => handleUpdateSupabaseConfig("bucket", e.target.value)}
+                            className="w-full bg-white border border-zinc-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-hidden focus:border-zinc-400 text-zinc-800"
+                          />
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
 
               {/* Form Actions Footer */}
               <div className="flex items-center justify-end gap-2 pt-4 border-t border-zinc-100 bg-white">
