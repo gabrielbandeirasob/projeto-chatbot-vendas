@@ -25,6 +25,8 @@ interface ProductsProps {
   onAddProduct: (product: Omit<Product, "id">) => void;
   onEditProduct: (product: Product) => void;
   onDeleteProduct: (id: string) => void;
+  supabaseConfig: SupabaseConfig;
+  onUpdateSupabaseConfig: (config: SupabaseConfig) => void;
 }
 
 export default function Products({ 
@@ -32,7 +34,9 @@ export default function Products({
   categories, 
   onAddProduct, 
   onEditProduct, 
-  onDeleteProduct 
+  onDeleteProduct,
+  supabaseConfig,
+  onUpdateSupabaseConfig
 }: ProductsProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("Todos");
@@ -52,14 +56,6 @@ export default function Products({
   const [formDescription, setFormDescription] = useState("");
 
   // Supabase Integration States
-  const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>(() => {
-    try {
-      const saved = localStorage.getItem("shop_master_supabase_config");
-      return saved ? JSON.parse(saved) : { url: "", anonKey: "", bucket: "produtos" };
-    } catch {
-      return { url: "", anonKey: "", bucket: "produtos" };
-    }
-  });
   const [imgSourceType, setImgSourceType] = useState<"url" | "upload">("url");
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -67,12 +63,10 @@ export default function Products({
   const [isConfigOpen, setIsConfigOpen] = useState(false);
 
   const handleUpdateSupabaseConfig = (key: keyof SupabaseConfig, value: string) => {
-    const updated = {
+    onUpdateSupabaseConfig({
       ...supabaseConfig,
       [key]: value
-    };
-    setSupabaseConfig(updated);
-    localStorage.setItem("shop_master_supabase_config", JSON.stringify(updated));
+    });
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {

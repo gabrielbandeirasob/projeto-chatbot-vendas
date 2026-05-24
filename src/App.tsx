@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Product, Category, ChatbotConfig } from "./types";
+import { Product, Category, ChatbotConfig, SupabaseConfig } from "./types";
 import { 
   initialProducts, 
   initialCategories, 
@@ -9,6 +9,7 @@ import Dashboard from "./components/Dashboard";
 import Products from "./components/Products";
 import Categories from "./components/Categories";
 import ChatbotSimulator from "./components/ChatbotSimulator";
+import Login from "./components/Login";
 
 // Lucide Icons
 import { 
@@ -17,55 +18,91 @@ import {
   Layers, 
   Bot, 
   Heart, 
-  Github,
   Store,
-  ExternalLink
+  LogOut
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 export default function App() {
-  // 1. Initialize states from LocalStorage or fallback to structured initial data
-  const [products, setProducts] = useState<Product[]>(() => {
-    try {
-      const saved = localStorage.getItem("shop_master_products");
-      return saved ? JSON.parse(saved) : initialProducts;
-    } catch {
-      return initialProducts;
-    }
+  // Session tenant identification
+  const [activeInstanceId, setActiveInstanceId] = useState<string | null>(() => {
+    return sessionStorage.getItem("shop_master_active_instance");
   });
 
-  const [categories, setCategories] = useState<Category[]>(() => {
-    try {
-      const saved = localStorage.getItem("shop_master_categories");
-      return saved ? JSON.parse(saved) : initialCategories;
-    } catch {
-      return initialCategories;
-    }
-  });
+  const instanceId = activeInstanceId || "";
 
-  const [chatbotConfig, setChatbotConfig] = useState<ChatbotConfig>(() => {
-    try {
-      const saved = localStorage.getItem("shop_master_chatbot_config");
-      return saved ? JSON.parse(saved) : defaultChatbotConfig;
-    } catch {
-      return defaultChatbotConfig;
-    }
-  });
+  // 1. Initialize states dynamically namespaced by active instance ID
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [chatbotConfig, setChatbotConfig] = useState<ChatbotConfig>(defaultChatbotConfig);
+  const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>({ url: "", anonKey: "", bucket: "produtos" });
 
   const [activeTab, setActiveTab] = useState<"dashboard" | "products" | "categories" | "chatbot">("dashboard");
 
-  // 2. Persist states in LocalStorage upon changes
+  // Load dynamically upon mounting or instance change
   useEffect(() => {
-    localStorage.setItem("shop_master_products", JSON.stringify(products));
-  }, [products]);
+    if (!instanceId) return;
+
+    // Load products
+    try {
+      const saved = localStorage.getItem(`shop_master_${instanceId}_products`);
+      setProducts(saved ? JSON.parse(saved) : initialProducts);
+    } catch {
+      setProducts(initialProducts);
+    }
+
+    // Load categories
+    try {
+      const saved = localStorage.getItem(`shop_master_${instanceId}_categories`);
+      setCategories(saved ? JSON.parse(saved) : initialCategories);
+    } catch {
+      setCategories(initialCategories);
+    }
+
+    // Load chatbot settings
+    try {
+      const saved = localStorage.getItem(`shop_master_${instanceId}_chatbot_config`);
+      setChatbotConfig(saved ? JSON.parse(saved) : {
+        ...defaultChatbotConfig,
+        identity: `Stella [${instanceId.toUpperCase()}]` // Custom identity fallback
+      });
+    } catch {
+      setChatbotConfig(defaultChatbotConfig);
+    }
+
+    // Load supabase credentials
+    try {
+      const saved = localStorage.getItem(`shop_master_${instanceId}_supabase_config`);
+      setSupabaseConfig(saved ? JSON.parse(saved) : { url: "", anonKey: "", bucket: "produtos" });
+    } catch {
+      setSupabaseConfig({ url: "", anonKey: "", bucket: "produtos" });
+    }
+  }, [activeInstanceId]);
+
+  // 2. Persist states in LocalStorage upon changes per active instance
+  useEffect(() => {
+    if (instanceId) {
+      localStorage.setItem(`shop_master_${instanceId}_products`, JSON.stringify(products));
+    }
+  }, [products, instanceId]);
 
   useEffect(() => {
-    localStorage.setItem("shop_master_categories", JSON.stringify(categories));
-  }, [categories]);
+    if (instanceId) {
+      localStorage.setItem(`shop_master_${instanceId}_categories`, JSON.stringify(categories));
+    }
+  }, [categories, instanceId]);
 
   useEffect(() => {
-    localStorage.setItem("shop_master_chatbot_config", JSON.stringify(chatbotConfig));
-  }, [chatbotConfig]);
+    if (instanceId) {
+      localStorage.setItem(`shop_master_${instanceId}_chatbot_config`, JSON.stringify(chatbotConfig));
+    }
+  }, [chatbotConfig, instanceId]);
+
+  useEffect(() => {
+    if (instanceId) {
+      localStorage.setItem(`shop_master_${instanceId}_supabase_config`, JSON.stringify(supabaseConfig));
+    }
+  }, [supabaseConfig, instanceId]);
 
   // 3. Product Action handlers
   const handleAddProduct = (newProd: Omit<Product, "id">) => {
@@ -114,12 +151,32 @@ export default function App() {
     }
   };
 
+  // Login handler
+  const handleLogin = (id: string) => {
+    sessionStorage.setItem("shop_master_active_instance", id);
+    setActiveInstanceId(id);
+    setActiveTab("dashboard");
+  };
+
+  // Logout handler
+  const handleLogout = () => {
+    if (confirm("Deseja realmente sair da conta do seu chatbot atual?")) {
+      sessionStorage.removeItem("shop_master_active_instance");
+      setActiveInstanceId(null);
+    }
+  };
+
+  // If not logged in, render the login page
+  if (!activeInstanceId) {
+    return <Login onLogin={handleLogin} />;
+  }
+
   return (
-    <div className="min-h-screen bg-zinc-55 text-zinc-900 font-sans flex flex-col justify-between">
+    <div key={activeInstanceId} className="min-h-screen bg-zinc-55 text-zinc-900 font-sans flex flex-col justify-between">
       
       {/* Upper Navigation & Brand Banner */}
-      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-zinc-150">
-        <div id="navigation-container" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-zinc-150 shadow-3xs">
+        <div id="navigation-container" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
           
           {/* Logo Brand */}
           <div className="flex items-center gap-2.5">
@@ -127,17 +184,22 @@ export default function App() {
               <Store className="w-5 h-5 text-emerald-400" />
             </div>
             <div>
-              <h1 className="font-display font-bold text-sm tracking-tight text-zinc-900">Catálogo & Chatbot</h1>
-              <p className="text-[10px] text-zinc-400 tracking-wider uppercase font-semibold">PAINEL DE EXPEDIÇÃO</p>
+              <h1 className="font-display font-bold text-sm tracking-tight text-zinc-900">Stella Hub</h1>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider">Instância:</span>
+                <span className="inline-flex items-center bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-md font-mono text-[9px] font-extrabold border border-emerald-100 uppercase">
+                  {activeInstanceId}
+                </span>
+              </div>
             </div>
           </div>
 
           {/* Navigation tab bar selectors */}
-          <nav className="flex space-x-1 bg-zinc-100 p-1 rounded-2xl border border-zinc-150">
+          <nav className="flex space-x-1 bg-zinc-100 p-1 rounded-2xl border border-zinc-150 max-w-full overflow-x-auto">
             <button
               id="tab-dashboard"
               onClick={() => setActiveTab("dashboard")}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === "dashboard"
                   ? "bg-white text-zinc-950 shadow-3xs"
                   : "text-zinc-500 hover:text-zinc-900"
@@ -150,7 +212,7 @@ export default function App() {
             <button
               id="tab-products"
               onClick={() => setActiveTab("products")}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === "products"
                   ? "bg-white text-zinc-950 shadow-3xs"
                   : "text-zinc-500 hover:text-zinc-900"
@@ -163,7 +225,7 @@ export default function App() {
             <button
               id="tab-categories"
               onClick={() => setActiveTab("categories")}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === "categories"
                   ? "bg-white text-zinc-950 shadow-3xs"
                   : "text-zinc-500 hover:text-zinc-900"
@@ -176,22 +238,30 @@ export default function App() {
             <button
               id="tab-chatbot"
               onClick={() => setActiveTab("chatbot")}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === "chatbot"
                   ? "bg-white text-zinc-950 shadow-3xs hover:bg-white"
                   : "text-zinc-500 hover:text-zinc-900"
               }`}
             >
               <Bot className="w-4 h-4 text-emerald-600 animate-pulse" />
-              <span>Stella IA</span>
+              <span>Simulador</span>
             </button>
           </nav>
 
-          {/* Quick link button info */}
-          <div className="hidden md:flex items-center gap-2">
-            <span className="text-[11px] font-mono font-medium text-zinc-500 bg-zinc-100 px-2.5 py-1 rounded-lg border border-zinc-200">
-              v1.2.0 (Gemini 3.5 Ready)
+          {/* Quick actions: Logout */}
+          <div className="flex items-center gap-2">
+            <span className="hidden md:inline text-[10px] font-mono font-medium text-zinc-500 bg-zinc-100 px-2 py-1 rounded-lg border border-zinc-200">
+              v1.3.0
             </span>
+            <button
+              onClick={handleLogout}
+              className="flex items-center justify-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700 border border-rose-100 transition-colors cursor-pointer select-none"
+              title="Sair da Instância"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Sair</span>
+            </button>
           </div>
 
         </div>
@@ -222,6 +292,8 @@ export default function App() {
                 onAddProduct={handleAddProduct}
                 onEditProduct={handleEditProduct}
                 onDeleteProduct={handleDeleteProduct}
+                supabaseConfig={supabaseConfig}
+                onUpdateSupabaseConfig={setSupabaseConfig}
               />
             )}
 
@@ -251,7 +323,7 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-1.5 font-medium">
             <Store className="w-4 h-4 text-zinc-400" />
-            <span>© 2026 Catálogo & Chatbot Stella Hub. Orgulhosamente desenvolvido para vendas.</span>
+            <span>© 2026 Catálogo & Chatbot Stella Hub. Instâncias isoladas em tempo real.</span>
           </div>
           <div className="flex items-center gap-2 text-zinc-450 font-medium">
             <span>Desenvolvido com</span>
