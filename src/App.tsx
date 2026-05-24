@@ -8,7 +8,7 @@ import {
 import Dashboard from "./components/Dashboard";
 import Products from "./components/Products";
 import Categories from "./components/Categories";
-import ChatbotSimulator from "./components/ChatbotSimulator";
+import ChatbotConfigPanel from "./components/ChatbotConfigPanel";
 import Login from "./components/Login";
 
 // Lucide Icons
@@ -19,7 +19,9 @@ import {
   Bot, 
   Heart, 
   Store,
-  LogOut
+  LogOut,
+  Database,
+  Loader2
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -31,18 +33,21 @@ export default function App() {
 
   const instanceId = activeInstanceId || "";
 
-  // 1. Initialize states dynamically namespaced by active instance ID
+  // 1. Core States (Synchronized between Supabase and Local Fallback)
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [chatbotConfig, setChatbotConfig] = useState<ChatbotConfig>(defaultChatbotConfig);
   const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>({ url: "", anonKey: "", bucket: "produtos" });
 
+  // 2. Integration / Sincronização States
+  const [isSupabaseSynced, setIsSupabaseSynced] = useState(false);
+  const [supabaseLoading, setSupabaseLoading] = useState(false);
+  const [supabaseError, setSupabaseError] = useState<"connection_failed" | "tables_missing" | null>(null);
+
   const [activeTab, setActiveTab] = useState<"dashboard" | "products" | "categories" | "chatbot">("dashboard");
 
-  // Load dynamically upon mounting or instance change
-  useEffect(() => {
-    if (!instanceId) return;
-
+  // Load Namespaced LocalStorage data as secure fallback
+  const loadFromLocalStorage = () => {
     // Load products
     try {
       const saved = localStorage.getItem(`shop_master_${instanceId}_products`);
@@ -59,84 +64,281 @@ export default function App() {
       setCategories(initialCategories);
     }
 
-    // Load chatbot settings
+    // Load chatbot configuration
     try {
       const saved = localStorage.getItem(`shop_master_${instanceId}_chatbot_config`);
       setChatbotConfig(saved ? JSON.parse(saved) : {
         ...defaultChatbotConfig,
-        identity: `Stella [${instanceId.toUpperCase()}]` // Custom identity fallback
+        identity: `Stella [${instanceId.toUpperCase()}]`
       });
     } catch {
       setChatbotConfig(defaultChatbotConfig);
     }
+  };
 
-    // Load supabase credentials
+  // Asynchronous central loader directly from Supabase REST APIs (PostgREST)
+  const loadDataFromSupabase = async (url: string, key: string, bucketName: string) => {
+    const cleanUrl = url.replace(/\/$/, "");
+    const headers = {
+      "apikey": key,
+      "Authorization": `Bearer ${key}`
+    };
+
+    try {
+      setSupabaseLoading(true);
+      setSupabaseError(null);
+
+      // 1. Fetch products
+      const prodRes = await fetch(`${cleanUrl}/rest/v1/products?select=*`, { headers });
+      if (!prodRes.ok) {
+        const text = await prodRes.text();
+        if (text.includes("does not exist")) {
+          setSupabaseError("tables_missing");
+          setIsSupabaseSynced(false);
+          loadFromLocalStorage();
+          return;
+        }
+        throw new Error("Erro na tabela produtos");
+      }
+      const prodData = await prodRes.json();
+
+      // 2. Fetch categories
+      const catRes = await fetch(`${cleanUrl}/rest/v1/categories?select=*`, { headers });
+      if (!catRes.ok) {
+        const text = await catRes.text();
+        if (text.includes("does not exist")) {
+          setSupabaseError("tables_missing");
+          setIsSupabaseSynced(false);
+          loadFromLocalStorage();
+          return;
+        }
+        throw new Error("Erro na tabela categorias");
+      }
+      const catData = await catRes.json();
+
+      // 3. Fetch chatbot config
+      const configRes = await fetch(`${cleanUrl}/rest/v1/chatbot_config?select=*`, { headers });
+      if (!configRes.ok) {
+        const text = await configRes.text();
+        if (text.includes("does not exist")) {
+          setSupabaseError("tables_missing");
+          setIsSupabaseSynced(false);
+          loadFromLocalStorage();
+          return;
+        }
+        throw new Error("Erro na tabela chatbot_config");
+      }
+      const configData = await configRes.json();
+
+      // If configuration table is completely empty, insert a fallback row
+      let activeConfig = defaultChatbotConfig;
+      if (configData && configData.length > 0) {
+        activeConfig = configData[0];
+      } else {
+        // Seed default config into Supabase
+        await fetch(`${cleanUrl}/rest/v1/chatbot_config`, {
+          method: "POST",
+          headers: {
+            ...headers,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            ...defaultChatbotConfig,
+            id: "default"
+          })
+        });
+      }
+
+      setProducts(prodData);
+      setCategories(catData);
+      setChatbotConfig(activeConfig);
+      setIsSupabaseSynced(true);
+      setSupabaseError(null);
+    } catch (err: any) {
+      console.error("Erro ao conectar com o Supabase:", err);
+      setSupabaseError("connection_failed");
+      setIsSupabaseSynced(false);
+      loadFromLocalStorage();
+    } finally {
+      setSupabaseLoading(false);
+    }
+  };
+
+  // Main loader reactive to logged instance
+  useEffect(() => {
+    if (!instanceId) return;
+
+    // Load namespaced supabase config first
+    let activeSupabase: SupabaseConfig = { url: "", anonKey: "", bucket: "produtos" };
     try {
       const saved = localStorage.getItem(`shop_master_${instanceId}_supabase_config`);
-      setSupabaseConfig(saved ? JSON.parse(saved) : { url: "", anonKey: "", bucket: "produtos" });
+      if (saved) {
+        activeSupabase = JSON.parse(saved);
+        setSupabaseConfig(activeSupabase);
+      } else {
+        setSupabaseConfig(activeSupabase);
+      }
     } catch {
-      setSupabaseConfig({ url: "", anonKey: "", bucket: "produtos" });
+      setSupabaseConfig(activeSupabase);
+    }
+
+    // Connect dynamically if credentials are valid, else fallback immediately to localstorage
+    if (activeSupabase.url && activeSupabase.anonKey) {
+      loadDataFromSupabase(activeSupabase.url, activeSupabase.anonKey, activeSupabase.bucket);
+    } else {
+      setIsSupabaseSynced(false);
+      setSupabaseError(null);
+      loadFromLocalStorage();
     }
   }, [activeInstanceId]);
 
-  // 2. Persist states in LocalStorage upon changes per active instance
+  // Sync state changes back to LocalStorage for safety fallback
   useEffect(() => {
-    if (instanceId) {
+    if (instanceId && !isSupabaseSynced) {
       localStorage.setItem(`shop_master_${instanceId}_products`, JSON.stringify(products));
     }
-  }, [products, instanceId]);
+  }, [products, instanceId, isSupabaseSynced]);
 
   useEffect(() => {
-    if (instanceId) {
+    if (instanceId && !isSupabaseSynced) {
       localStorage.setItem(`shop_master_${instanceId}_categories`, JSON.stringify(categories));
     }
-  }, [categories, instanceId]);
+  }, [categories, instanceId, isSupabaseSynced]);
 
   useEffect(() => {
-    if (instanceId) {
+    if (instanceId && !isSupabaseSynced) {
       localStorage.setItem(`shop_master_${instanceId}_chatbot_config`, JSON.stringify(chatbotConfig));
     }
-  }, [chatbotConfig, instanceId]);
+  }, [chatbotConfig, instanceId, isSupabaseSynced]);
 
-  useEffect(() => {
-    if (instanceId) {
-      localStorage.setItem(`shop_master_${instanceId}_supabase_config`, JSON.stringify(supabaseConfig));
-    }
-  }, [supabaseConfig, instanceId]);
-
-  // 3. Product Action handlers
-  const handleAddProduct = (newProd: Omit<Product, "id">) => {
+  // 3. Product Action handlers with direct Supabase Syncing
+  const handleAddProduct = async (newProd: Omit<Product, "id">) => {
     const p: Product = {
       ...newProd,
       id: `prod-${Date.now()}`
     };
+
     setProducts(prev => [p, ...prev]);
-  };
 
-  const handleEditProduct = (updatedProd: Product) => {
-    setProducts(prev => prev.map(p => p.id === updatedProd.id ? updatedProd : p));
-  };
-
-  const handleDeleteProduct = (id: string) => {
-    if (confirm("Deseja realmente remover este produto do catálogo em estoque?")) {
-      setProducts(prev => prev.filter(p => p.id !== id));
+    if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey) {
+      try {
+        const cleanUrl = supabaseConfig.url.replace(/\/$/, "");
+        const response = await fetch(`${cleanUrl}/rest/v1/products`, {
+          method: "POST",
+          headers: {
+            "apikey": supabaseConfig.anonKey,
+            "Authorization": `Bearer ${supabaseConfig.anonKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(p)
+        });
+        if (!response.ok) throw new Error("Erro ao sincronizar produto");
+      } catch (err) {
+        console.error(err);
+        alert("⚠️ Salvo localmente, mas não pôde ser gravado no Supabase. Verifique sua conexão.");
+      }
     }
   };
 
-  // 4. Category Action handlers
-  const handleAddCategory = (newCat: Omit<Category, "id">) => {
+  const handleEditProduct = async (updatedProd: Product) => {
+    setProducts(prev => prev.map(p => p.id === updatedProd.id ? updatedProd : p));
+
+    if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey) {
+      try {
+        const cleanUrl = supabaseConfig.url.replace(/\/$/, "");
+        const response = await fetch(`${cleanUrl}/rest/v1/products?id=eq.${updatedProd.id}`, {
+          method: "PATCH",
+          headers: {
+            "apikey": supabaseConfig.anonKey,
+            "Authorization": `Bearer ${supabaseConfig.anonKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(updatedProd)
+        });
+        if (!response.ok) throw new Error("Erro ao atualizar no Supabase");
+      } catch (err) {
+        console.error(err);
+        alert("⚠️ Modificação salva localmente, mas falhou ao gravar no Supabase.");
+      }
+    }
+  };
+
+  const handleDeleteProduct = async (id: string) => {
+    if (!confirm("Deseja realmente remover este produto do catálogo?")) return;
+
+    setProducts(prev => prev.filter(p => p.id !== id));
+
+    if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey) {
+      try {
+        const cleanUrl = supabaseConfig.url.replace(/\/$/, "");
+        const response = await fetch(`${cleanUrl}/rest/v1/products?id=eq.${id}`, {
+          method: "DELETE",
+          headers: {
+            "apikey": supabaseConfig.anonKey,
+            "Authorization": `Bearer ${supabaseConfig.anonKey}`
+          }
+        });
+        if (!response.ok) throw new Error("Erro ao deletar no Supabase");
+      } catch (err) {
+        console.error(err);
+        alert("⚠️ Produto removido localmente, mas falhou ao apagar no Supabase.");
+      }
+    }
+  };
+
+  // 4. Category Action handlers with direct Supabase Syncing
+  const handleAddCategory = async (newCat: Omit<Category, "id">) => {
     const c: Category = {
       ...newCat,
       id: `cat-${Date.now()}`
     };
+
     setCategories(prev => [...prev, c]);
+
+    if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey) {
+      try {
+        const cleanUrl = supabaseConfig.url.replace(/\/$/, "");
+        const response = await fetch(`${cleanUrl}/rest/v1/categories`, {
+          method: "POST",
+          headers: {
+            "apikey": supabaseConfig.anonKey,
+            "Authorization": `Bearer ${supabaseConfig.anonKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(c)
+        });
+        if (!response.ok) throw new Error("Erro ao adicionar categoria no Supabase");
+      } catch (err) {
+        console.error(err);
+        alert("⚠️ Categoria salva localmente, mas falhou ao sincronizar com o Supabase.");
+      }
+    }
   };
 
-  const handleEditCategory = (updatedCat: Category) => {
+  const handleEditCategory = async (updatedCat: Category) => {
     setCategories(prev => prev.map(c => c.id === updatedCat.id ? updatedCat : c));
+
+    if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey) {
+      try {
+        const cleanUrl = supabaseConfig.url.replace(/\/$/, "");
+        const response = await fetch(`${cleanUrl}/rest/v1/categories?id=eq.${updatedCat.id}`, {
+          method: "PATCH",
+          headers: {
+            "apikey": supabaseConfig.anonKey,
+            "Authorization": `Bearer ${supabaseConfig.anonKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(updatedCat)
+        });
+        if (!response.ok) throw new Error("Erro ao atualizar categoria no Supabase");
+      } catch (err) {
+        console.error(err);
+        alert("⚠️ Categoria atualizada localmente, mas falhou ao sincronizar com o Supabase.");
+      }
+    }
   };
 
-  const handleDeleteCategory = (id: string) => {
+  const handleDeleteCategory = async (id: string) => {
     const catToDelete = categories.find(c => c.id === id);
     if (!catToDelete) return;
 
@@ -146,19 +348,74 @@ export default function App() {
       return;
     }
 
-    if (confirm(`Tem certeza que deseja remover a categoria "${catToDelete.name}"?`)) {
-      setCategories(prev => prev.filter(c => c.id !== id));
+    if (!confirm(`Tem certeza que deseja remover a categoria "${catToDelete.name}"?`)) return;
+
+    setCategories(prev => prev.filter(c => c.id !== id));
+
+    if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey) {
+      try {
+        const cleanUrl = supabaseConfig.url.replace(/\/$/, "");
+        const response = await fetch(`${cleanUrl}/rest/v1/categories?id=eq.${id}`, {
+          method: "DELETE",
+          headers: {
+            "apikey": supabaseConfig.anonKey,
+            "Authorization": `Bearer ${supabaseConfig.anonKey}`
+          }
+        });
+        if (!response.ok) throw new Error("Erro ao deletar categoria no Supabase");
+      } catch (err) {
+        console.error(err);
+        alert("⚠️ Categoria removida localmente, mas falhou ao deletar no Supabase.");
+      }
     }
   };
 
-  // Login handler
+  // 5. Save Chatbot personality config directly to Supabase config row
+  const handleSaveChatbotConfig = async (newConfig: ChatbotConfig) => {
+    setChatbotConfig(newConfig);
+
+    if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey) {
+      try {
+        const cleanUrl = supabaseConfig.url.replace(/\/$/, "");
+        const response = await fetch(`${cleanUrl}/rest/v1/chatbot_config?id=eq.default`, {
+          method: "PATCH",
+          headers: {
+            "apikey": supabaseConfig.anonKey,
+            "Authorization": `Bearer ${supabaseConfig.anonKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(newConfig)
+        });
+        if (!response.ok) throw new Error("Erro ao salvar configuração no Supabase");
+      } catch (err) {
+        console.error(err);
+        alert("⚠️ Parâmetros da IA salvos localmente, mas falhou ao sincronizar com o Supabase.");
+      }
+    }
+  };
+
+  // Supabase Credentials Manager
+  const handleUpdateSupabaseConfig = (config: SupabaseConfig) => {
+    setSupabaseConfig(config);
+    localStorage.setItem(`shop_master_${instanceId}_supabase_config`, JSON.stringify(config));
+    
+    if (config.url && config.anonKey) {
+      loadDataFromSupabase(config.url, config.anonKey, config.bucket);
+    } else {
+      setIsSupabaseSynced(false);
+      setSupabaseError(null);
+      loadFromLocalStorage();
+    }
+  };
+
+  // Login session trigger
   const handleLogin = (id: string) => {
     sessionStorage.setItem("shop_master_active_instance", id);
     setActiveInstanceId(id);
     setActiveTab("dashboard");
   };
 
-  // Logout handler
+  // Logout trigger
   const handleLogout = () => {
     if (confirm("Deseja realmente sair da conta do seu chatbot atual?")) {
       sessionStorage.removeItem("shop_master_active_instance");
@@ -190,6 +447,21 @@ export default function App() {
                 <span className="inline-flex items-center bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-md font-mono text-[9px] font-extrabold border border-emerald-100 uppercase">
                   {activeInstanceId}
                 </span>
+                
+                {/* Supabase status indicator badge */}
+                {supabaseLoading ? (
+                  <span className="inline-flex items-center text-[9px] font-semibold text-zinc-400 gap-1 animate-pulse">
+                    <Loader2 className="w-2.5 h-2.5 animate-spin" /> Conectando...
+                  </span>
+                ) : isSupabaseSynced ? (
+                  <span className="inline-flex items-center bg-emerald-50 text-emerald-650 px-1 py-0.5 rounded-sm font-mono text-[8px] font-extrabold uppercase border border-emerald-100 gap-0.5">
+                    <Database className="w-2 h-2" /> Live
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center bg-amber-50 text-amber-650 px-1 py-0.5 rounded-sm font-mono text-[8px] font-extrabold uppercase border border-amber-100">
+                    Offline
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -245,14 +517,14 @@ export default function App() {
               }`}
             >
               <Bot className="w-4 h-4 text-emerald-600 animate-pulse" />
-              <span>Simulador</span>
+              <span>Personalizar IA</span>
             </button>
           </nav>
 
           {/* Quick actions: Logout */}
           <div className="flex items-center gap-2">
             <span className="hidden md:inline text-[10px] font-mono font-medium text-zinc-500 bg-zinc-100 px-2 py-1 rounded-lg border border-zinc-200">
-              v1.3.0
+              n8n Ready
             </span>
             <button
               onClick={handleLogout}
@@ -293,7 +565,7 @@ export default function App() {
                 onEditProduct={handleEditProduct}
                 onDeleteProduct={handleDeleteProduct}
                 supabaseConfig={supabaseConfig}
-                onUpdateSupabaseConfig={setSupabaseConfig}
+                onUpdateSupabaseConfig={handleUpdateSupabaseConfig}
               />
             )}
 
@@ -308,10 +580,11 @@ export default function App() {
             )}
 
             {activeTab === "chatbot" && (
-              <ChatbotSimulator 
-                products={products}
+              <ChatbotConfigPanel 
                 config={chatbotConfig}
-                onSaveConfig={setChatbotConfig}
+                onSaveConfig={handleSaveChatbotConfig}
+                supabaseConfig={supabaseConfig}
+                activeInstanceId={activeInstanceId}
               />
             )}
           </motion.div>
@@ -323,13 +596,13 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-1.5 font-medium">
             <Store className="w-4 h-4 text-zinc-400" />
-            <span>© 2026 Catálogo & Chatbot Stella Hub. Instâncias isoladas em tempo real.</span>
+            <span>© 2026 Catálogo Stella Hub. Painel de administração de produtos integrado ao Supabase.</span>
           </div>
           <div className="flex items-center gap-2 text-zinc-450 font-medium">
             <span>Desenvolvido com</span>
             <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />
             <span>&</span>
-            <span className="font-semibold text-zinc-800">Gemini de Google AI</span>
+            <span className="font-semibold text-zinc-800">Supabase & n8n</span>
           </div>
         </div>
       </footer>

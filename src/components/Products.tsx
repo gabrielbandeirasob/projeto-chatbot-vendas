@@ -669,7 +669,7 @@ export default function Products({
                 >
                   <span className="flex items-center gap-1.5">
                     <Sliders className="w-3.5 h-3.5" />
-                    Configurar Conexão do Supabase Storage
+                    Configurar Conexão do Supabase (Banco de Dados & Storage)
                   </span>
                   <span className="text-[10px]">{isConfigOpen ? "▲ Recolher" : "▼ Expandir"}</span>
                 </button>
@@ -684,7 +684,7 @@ export default function Products({
                       className="overflow-hidden mt-3 space-y-3 bg-zinc-50 p-3 rounded-xl border border-zinc-150"
                     >
                       <p className="text-[10px] text-zinc-505 leading-relaxed">
-                        Insira as credenciais do seu projeto Supabase para ativar o upload de imagens. As fotos serão salvas em um bucket público para que seu chatbot do n8n possa consultá-las.
+                        Insira as credenciais do seu projeto Supabase para ativar a sincronização em tempo real de produtos, categorias e prompts, além de habilitar o upload de imagens. Os dados serão gravados de forma segura nas tabelas do seu Supabase para consulta imediata pela sua automação do n8n.
                       </p>
 
                       <div className="space-y-2">
