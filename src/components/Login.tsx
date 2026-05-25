@@ -1,6 +1,6 @@
 import React, { useState, FormEvent, useEffect } from "react";
-import { Bot, Store, Lock, ArrowRight, Sparkles, Mail, Database, ChevronDown, ChevronUp, Check } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
+import { Bot, Store, Lock, ArrowRight, Sparkles, Mail } from "lucide-react";
+import { motion } from "motion/react";
 import { SupabaseConfig } from "../types";
 
 interface LoginProps {
@@ -22,8 +22,6 @@ export default function Login({ onLogin }: LoginProps) {
   const [supabaseUrl, setSupabaseUrl] = useState("");
   const [supabaseAnonKey, setSupabaseAnonKey] = useState("");
   const [supabaseBucket, setSupabaseBucket] = useState("produtos");
-  const [isConfigOpen, setIsConfigOpen] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
 
   // Load configuration from env or localStorage
   useEffect(() => {
@@ -51,28 +49,6 @@ export default function Login({ onLogin }: LoginProps) {
     }
   }, []);
 
-  const handleSaveConfig = (e: React.MouseEvent) => {
-    e.preventDefault();
-    if (!supabaseUrl.trim() || !supabaseAnonKey.trim()) {
-      setError("Por favor, preencha a URL e a Chave Anon do Supabase.");
-      return;
-    }
-
-    const config: SupabaseConfig = {
-      url: supabaseUrl.trim(),
-      anonKey: supabaseAnonKey.trim(),
-      bucket: supabaseBucket.trim()
-    };
-
-    localStorage.setItem("shop_master_global_supabase_config", JSON.stringify(config));
-    setSaveSuccess(true);
-    setError(null);
-    setTimeout(() => {
-      setSaveSuccess(false);
-      setIsConfigOpen(false);
-    }, 1500);
-  };
-
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     
@@ -82,8 +58,7 @@ export default function Login({ onLogin }: LoginProps) {
     }
 
     if (!supabaseUrl.trim() || !supabaseAnonKey.trim()) {
-      setError("Banco de dados não configurado. Por favor, insira as credenciais do Supabase no painel abaixo.");
-      setIsConfigOpen(true);
+      setError("Banco de dados do Supabase não configurado. Por favor, adicione as credenciais de banco nas variáveis de ambiente do projeto (.env).");
       return;
     }
 
@@ -255,85 +230,6 @@ export default function Login({ onLogin }: LoginProps) {
               )}
             </button>
           </form>
-
-          {/* Database Connection Credentials Drawer */}
-          <div className="border-t border-zinc-900 mt-6 pt-4">
-            <button
-              onClick={() => setIsConfigOpen(!isConfigOpen)}
-              className="w-full flex items-center justify-between text-[10px] font-bold text-zinc-500 hover:text-zinc-300 uppercase tracking-wider transition-colors py-1 cursor-pointer select-none"
-            >
-              <span className="flex items-center gap-1.5">
-                <Database className="w-3.5 h-3.5" />
-                Configurar Banco de Dados
-              </span>
-              {isConfigOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            </button>
-
-            <AnimatePresence>
-              {isConfigOpen && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="overflow-hidden mt-3 space-y-3 bg-zinc-900/40 p-4 rounded-xl border border-zinc-800"
-                >
-                  <p className="text-[9px] text-zinc-400 leading-normal">
-                    Se você não configurou o arquivo `.env` do projeto, insira as credenciais do seu projeto Supabase abaixo:
-                  </p>
-
-                  <div className="space-y-2">
-                    <div>
-                      <label className="block text-[9px] text-zinc-400 font-bold uppercase mb-1">Supabase URL</label>
-                      <input
-                        type="text"
-                        placeholder="https://xyz.supabase.co"
-                        value={supabaseUrl}
-                        onChange={(e) => setSupabaseUrl(e.target.value)}
-                        className="w-full bg-zinc-950 border border-zinc-850 focus:border-emerald-500 rounded-lg px-2.5 py-1.5 text-[10px] text-white font-mono placeholder-zinc-700 focus:outline-hidden"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[9px] text-zinc-400 font-bold uppercase mb-1">Supabase Anon Key</label>
-                      <input
-                        type="password"
-                        placeholder="eyJhbGciOi..."
-                        value={supabaseAnonKey}
-                        onChange={(e) => setSupabaseAnonKey(e.target.value)}
-                        className="w-full bg-zinc-950 border border-zinc-850 focus:border-emerald-500 rounded-lg px-2.5 py-1.5 text-[10px] text-white font-mono placeholder-zinc-700 focus:outline-hidden"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[9px] text-zinc-400 font-bold uppercase mb-1">Bucket de Imagens (Storage)</label>
-                      <input
-                        type="text"
-                        placeholder="produtos"
-                        value={supabaseBucket}
-                        onChange={(e) => setSupabaseBucket(e.target.value)}
-                        className="w-full bg-zinc-950 border border-zinc-850 focus:border-emerald-500 rounded-lg px-2.5 py-1.5 text-[10px] text-white font-mono placeholder-zinc-700 focus:outline-hidden"
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={handleSaveConfig}
-                    className="w-full bg-zinc-800 hover:bg-zinc-750 text-white rounded-lg py-1.5 text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors border border-zinc-750"
-                  >
-                    {saveSuccess ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-450 font-bold" />
-                        Salvo com Sucesso!
-                      </>
-                    ) : (
-                      "Salvar Configurações Locais"
-                    )}
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
 
           <div className="border-t border-zinc-900/60 mt-5 pt-4 space-y-1.5 text-left">
             <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-450 flex items-center gap-1 font-semibold select-none">
