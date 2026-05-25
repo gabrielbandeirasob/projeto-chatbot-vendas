@@ -22,8 +22,8 @@ import { motion, AnimatePresence } from "motion/react";
 interface ProductsProps {
   products: Product[];
   categories: Category[];
-  onAddProduct: (product: Omit<Product, "id">) => void;
-  onEditProduct: (product: Product) => void;
+  onAddProduct: (product: Omit<Product, "id">, imageFile?: File) => void;
+  onEditProduct: (product: Product, imageFile?: File) => void;
   onDeleteProduct: (id: string) => void;
   supabaseConfig: SupabaseConfig;
   onUpdateSupabaseConfig: (config: SupabaseConfig) => void;
@@ -55,6 +55,12 @@ export default function Products({
   const [formFeatured, setFormFeatured] = useState(false);
   const [formDescription, setFormDescription] = useState("");
 
+  // Extracted Portuguese Fields
+  const [formSlug, setFormSlug] = useState("");
+  const [formPromoPrice, setFormPromoPrice] = useState<number | null>(null);
+  const [formPurchaseLink, setFormPurchaseLink] = useState("");
+  const [selectedUploadFile, setSelectedUploadFile] = useState<File | null>(null);
+
   // Supabase Integration States
   const [imgSourceType, setImgSourceType] = useState<"url" | "upload">("url");
   const [isUploading, setIsUploading] = useState(false);
@@ -69,7 +75,18 @@ export default function Products({
     });
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleNameChange = (val: string) => {
+    setFormName(val);
+    if (!editingProduct) {
+      const generatedSlug = val
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/(^-|-$)/g, "");
+      setFormSlug(generatedSlug);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -78,46 +95,13 @@ export default function Products({
       return;
     }
 
-    setIsUploading(true);
     setUploadError(null);
-    setUploadSuccess(false);
+    setSelectedUploadFile(file);
+    setUploadSuccess(true); // Signifies image is prepared locally
 
-    try {
-      const { url, anonKey, bucket } = supabaseConfig;
-      if (!url || !anonKey) {
-        throw new Error("Por favor, configure as credenciais do seu Supabase na gaveta abaixo antes de enviar.");
-      }
-
-      const timestamp = Date.now();
-      const sanitizedName = file.name.replace(/[^a-zA-Z0-9.]/g, "_");
-      const fileName = `${timestamp}-${sanitizedName}`;
-      const cleanUrl = url.replace(/\/$/, "");
-      const uploadUrl = `${cleanUrl}/storage/v1/object/${bucket}/${fileName}`;
-
-      const response = await fetch(uploadUrl, {
-        method: "POST",
-        headers: {
-          "apikey": anonKey,
-          "Authorization": `Bearer ${anonKey}`,
-          "Content-Type": file.type
-        },
-        body: file
-      });
-
-      if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`Erro no Supabase: ${errText || response.statusText}`);
-      }
-
-      const publicUrl = `${cleanUrl}/storage/v1/object/public/${bucket}/${fileName}`;
-      setFormImageUrl(publicUrl);
-      setUploadSuccess(true);
-    } catch (err: any) {
-      console.error("Upload error:", err);
-      setUploadError(err.message || "Erro inesperado ao realizar o upload.");
-    } finally {
-      setIsUploading(false);
-    }
+    // Generate local Object URL for instant thumbnail preview
+    const previewUrl = URL.createObjectURL(file);
+    setFormImageUrl(previewUrl);
   };
 
   const handleOpenAddForm = () => {
@@ -130,6 +114,10 @@ export default function Products({
     setFormGender("Unissex");
     setFormFeatured(false);
     setFormDescription("");
+    setFormSlug("");
+    setFormPromoPrice(null);
+    setFormPurchaseLink("");
+    setSelectedUploadFile(null);
     setUploadError(null);
     setUploadSuccess(false);
     setImgSourceType("url");
@@ -146,6 +134,10 @@ export default function Products({
     setFormGender(product.gender);
     setFormFeatured(product.featured);
     setFormDescription(product.description);
+    setFormSlug(product.slug || "");
+    setFormPromoPrice(product.preco_promocional !== undefined ? product.preco_promocional : null);
+    setFormPurchaseLink(product.link_compra || "");
+    setSelectedUploadFile(null);
     setUploadError(null);
     setUploadSuccess(false);
     setImgSourceType(product.imageUrl.includes("supabase.co") ? "upload" : "url");
@@ -165,15 +157,18 @@ export default function Products({
       gender: formGender,
       featured: formFeatured,
       description: formDescription.trim(),
+      slug: formSlug.trim(),
+      preco_promocional: formPromoPrice !== null ? Number(formPromoPrice) : null,
+      link_compra: formPurchaseLink.trim()
     };
 
     if (editingProduct) {
       onEditProduct({
         ...dataValue,
         id: editingProduct.id
-      });
+      }, selectedUploadFile || undefined);
     } else {
-      onAddProduct(dataValue);
+      onAddProduct(dataValue, selectedUploadFile || undefined);
     }
     setIsFormOpen(false);
   };
@@ -351,9 +346,20 @@ export default function Products({
                       {/* Price info */}
                       <div>
                         <span className="text-[9px] text-zinc-400 block uppercase font-semibold">Preço Unitário</span>
-                        <span className="font-display font-bold text-sm text-zinc-900">
-                          R$ {product.price.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
+                        {product.preco_promocional ? (
+                          <div className="flex flex-col">
+                            <span className="text-[10px] text-zinc-400 line-through">
+                              R$ {product.price.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                            <span className="font-display font-extrabold text-sm text-emerald-650">
+                              R$ {product.preco_promocional.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="font-display font-bold text-sm text-zinc-900">
+                            R$ {product.price.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        )}
                       </div>
 
                       {/* Stock in-line control */}
@@ -455,15 +461,28 @@ export default function Products({
                   required
                   placeholder="Ex: Tênis Air Max Extreme"
                   value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
+                  onChange={(e) => handleNameChange(e.target.value)}
                   className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-xs focus:outline-hidden focus:border-zinc-400 focus:bg-white text-zinc-805"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              {/* Product Slug */}
+              <div>
+                <label className="block text-xs font-semibold text-zinc-700 mb-1">Slug (URL amigável) *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="ex: tenis-air-max-extreme"
+                  value={formSlug}
+                  onChange={(e) => setFormSlug(e.target.value)}
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-xs focus:outline-hidden focus:border-zinc-400 focus:bg-white text-zinc-805 font-mono text-[11px]"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
                 {/* Price */}
                 <div>
-                  <label className="block text-xs font-semibold text-zinc-700 mb-1">Preço (R$) *</label>
+                  <label className="block text-xs font-semibold text-zinc-700 mb-1">Preço Normal *</label>
                   <input
                     type="number"
                     step="0.01"
@@ -476,9 +495,23 @@ export default function Products({
                   />
                 </div>
 
+                {/* Promotional Price */}
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-700 mb-1">Preço Promo</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="Ex: 199.90"
+                    value={formPromoPrice === null ? "" : formPromoPrice}
+                    onChange={(e) => setFormPromoPrice(e.target.value === "" ? null : Number(e.target.value))}
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-xs focus:outline-hidden focus:border-zinc-400 focus:bg-white text-zinc-805"
+                  />
+                </div>
+
                 {/* Initial Stock */}
                 <div>
-                  <label className="block text-xs font-semibold text-zinc-700 mb-1">Estoque Inicial *</label>
+                  <label className="block text-xs font-semibold text-zinc-700 mb-1">Estoque *</label>
                   <input
                     type="number"
                     min="0"
@@ -489,6 +522,21 @@ export default function Products({
                     className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-xs focus:outline-hidden focus:border-zinc-400 focus:bg-white text-zinc-805"
                   />
                 </div>
+              </div>
+
+              {/* Purchase Link (link_compra) */}
+              <div>
+                <label className="block text-xs font-semibold text-zinc-700 mb-1">Link de Compra / Checkout</label>
+                <input
+                  type="url"
+                  placeholder="https://seudominio.com.br/produto/..."
+                  value={formPurchaseLink}
+                  onChange={(e) => setFormPurchaseLink(e.target.value)}
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-xs focus:outline-hidden focus:border-zinc-400 focus:bg-white text-zinc-805 font-mono text-[11px]"
+                />
+                <p className="text-[10px] text-zinc-400 mt-1">
+                  O chatbot do n8n pode enviar este link diretamente no WhatsApp para o cliente fechar a compra!
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">

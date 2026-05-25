@@ -8,6 +8,9 @@ export interface Product {
   gender: string; // 'Masculino' | 'Feminino' | 'Unissex'
   featured: boolean;
   description: string;
+  slug?: string;
+  preco_promocional?: number | null;
+  link_compra?: string;
 }
 
 export interface Category {
