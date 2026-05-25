@@ -39,7 +39,7 @@ const mapDbProductToReact = (dbProd: any): Product => ({
   link_compra: dbProd.link_compra || ""
 });
 
-const mapReactProductToDb = (prod: Omit<Product, "id">) => ({
+const mapReactProductToDb = (prod: Omit<Product, "id">, userId: string) => ({
   nome: prod.name,
   slug: prod.slug || prod.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
   descricao: prod.description,
@@ -47,7 +47,8 @@ const mapReactProductToDb = (prod: Omit<Product, "id">) => ({
   preco: prod.price,
   preco_promocional: prod.preco_promocional !== undefined && prod.preco_promocional !== null ? Number(prod.preco_promocional) : null,
   imagem_url: prod.imageUrl,
-  link_compra: prod.link_compra || ""
+  link_compra: prod.link_compra || "",
+  user_id: userId
 });
 
 const mapDbCategoryToReact = (dbCat: any): Category => ({
@@ -60,6 +61,14 @@ export default function App() {
   // Session tenant identification
   const [activeInstanceId, setActiveInstanceId] = useState<string | null>(() => {
     return sessionStorage.getItem("shop_master_active_instance");
+  });
+
+  const [userEmail, setUserEmail] = useState<string | null>(() => {
+    return sessionStorage.getItem("shop_master_user_email");
+  });
+
+  const [accessToken, setAccessToken] = useState<string | null>(() => {
+    return sessionStorage.getItem("shop_master_access_token");
   });
 
   const instanceId = activeInstanceId || "";
@@ -108,11 +117,11 @@ export default function App() {
   };
 
   // Asynchronous central loader directly from Supabase REST APIs (PostgREST)
-  const loadDataFromSupabase = async (url: string, key: string, bucketName: string) => {
+  const loadDataFromSupabase = async (url: string, key: string, bucketName: string, jwtToken: string) => {
     const cleanUrl = url.replace(/\/$/, "");
     const headers = {
       "apikey": key,
-      "Authorization": `Bearer ${key}`
+      "Authorization": `Bearer ${jwtToken}`
     };
 
     try {
@@ -120,7 +129,7 @@ export default function App() {
       setSupabaseError(null);
 
       // 1. Fetch products from 'produtos' table
-      const prodRes = await fetch(`${cleanUrl}/rest/v1/produtos?select=*`, { headers });
+      const prodRes = await fetch(`${cleanUrl}/rest/v1/produtos?user_id=eq.${instanceId}&select=*`, { headers });
       if (!prodRes.ok) {
         const text = await prodRes.text();
         if (text.includes("does not exist")) {
@@ -135,7 +144,7 @@ export default function App() {
       const mappedProducts = prodData.map(mapDbProductToReact);
 
       // 2. Fetch categories from 'categorias' table
-      const catRes = await fetch(`${cleanUrl}/rest/v1/categorias?select=*`, { headers });
+      const catRes = await fetch(`${cleanUrl}/rest/v1/categorias?user_id=eq.${instanceId}&select=*`, { headers });
       if (!catRes.ok) {
         const text = await catRes.text();
         if (text.includes("does not exist")) {
@@ -149,42 +158,8 @@ export default function App() {
       const catData = await catRes.json();
       const mappedCategories = catData.map(mapDbCategoryToReact);
 
-      // 3. Fetch chatbot config
-      const configRes = await fetch(`${cleanUrl}/rest/v1/chatbot_config?select=*`, { headers });
-      if (!configRes.ok) {
-        const text = await configRes.text();
-        if (text.includes("does not exist")) {
-          setSupabaseError("tables_missing");
-          setIsSupabaseSynced(false);
-          loadFromLocalStorage();
-          return;
-        }
-        throw new Error("Erro na tabela chatbot_config");
-      }
-      const configData = await configRes.json();
-
-      // If configuration table is completely empty, insert a fallback row
-      let activeConfig = defaultChatbotConfig;
-      if (configData && configData.length > 0) {
-        activeConfig = configData[0];
-      } else {
-        // Seed default config into Supabase
-        await fetch(`${cleanUrl}/rest/v1/chatbot_config`, {
-          method: "POST",
-          headers: {
-            ...headers,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            ...defaultChatbotConfig,
-            id: "default"
-          })
-        });
-      }
-
       setProducts(mappedProducts);
       setCategories(mappedCategories);
-      setChatbotConfig(activeConfig);
       setIsSupabaseSynced(true);
       setSupabaseError(null);
     } catch (err: any) {
@@ -199,31 +174,32 @@ export default function App() {
 
   // Main loader reactive to logged instance
   useEffect(() => {
-    if (!instanceId) return;
+    if (!instanceId || !accessToken) return;
 
-    // Load namespaced supabase config first
+    // Load global or namespaced supabase config
     let activeSupabase: SupabaseConfig = { url: "", anonKey: "", bucket: "produtos" };
     try {
-      const saved = localStorage.getItem(`shop_master_${instanceId}_supabase_config`);
-      if (saved) {
-        activeSupabase = JSON.parse(saved);
-        setSupabaseConfig(activeSupabase);
-      } else {
-        setSupabaseConfig(activeSupabase);
+      const savedGlobal = localStorage.getItem("shop_master_global_supabase_config");
+      const savedNamespaced = localStorage.getItem(`shop_master_${instanceId}_supabase_config`);
+      if (savedGlobal) {
+        activeSupabase = JSON.parse(savedGlobal);
+      } else if (savedNamespaced) {
+        activeSupabase = JSON.parse(savedNamespaced);
       }
+      setSupabaseConfig(activeSupabase);
     } catch {
       setSupabaseConfig(activeSupabase);
     }
 
     // Connect dynamically if credentials are valid, else fallback immediately to localstorage
     if (activeSupabase.url && activeSupabase.anonKey) {
-      loadDataFromSupabase(activeSupabase.url, activeSupabase.anonKey, activeSupabase.bucket);
+      loadDataFromSupabase(activeSupabase.url, activeSupabase.anonKey, activeSupabase.bucket, accessToken);
     } else {
       setIsSupabaseSynced(false);
       setSupabaseError(null);
       loadFromLocalStorage();
     }
-  }, [activeInstanceId]);
+  }, [activeInstanceId, accessToken]);
 
   // Sync state changes back to LocalStorage for safety fallback
   useEffect(() => {
@@ -246,18 +222,18 @@ export default function App() {
 
   // 3. Product Action handlers with direct Supabase Syncing & ID Naming Flow
   const handleAddProduct = async (newProd: Omit<Product, "id">, imageFile?: File) => {
-    if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey) {
+    if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey && accessToken) {
       try {
         const cleanUrl = supabaseConfig.url.replace(/\/$/, "");
         
         // Step A: Insert product without final image url (or placeholder) to generate database ID
-        const dbProductBody = mapReactProductToDb(newProd);
+        const dbProductBody = mapReactProductToDb(newProd, instanceId);
         
         const response = await fetch(`${cleanUrl}/rest/v1/produtos`, {
           method: "POST",
           headers: {
             "apikey": supabaseConfig.anonKey,
-            "Authorization": `Bearer ${supabaseConfig.anonKey}`,
+            "Authorization": `Bearer ${accessToken}`,
             "Content-Type": "application/json",
             "Prefer": "return=representation" // Requests inserted row containing auto-incremented ID
           },
@@ -284,7 +260,7 @@ export default function App() {
             method: "POST",
             headers: {
               "apikey": supabaseConfig.anonKey,
-              "Authorization": `Bearer ${supabaseConfig.anonKey}`,
+              "Authorization": `Bearer ${accessToken}`,
               "Content-Type": imageFile.type
             },
             body: imageFile
@@ -302,7 +278,7 @@ export default function App() {
             method: "PATCH",
             headers: {
               "apikey": supabaseConfig.anonKey,
-              "Authorization": `Bearer ${supabaseConfig.anonKey}`,
+              "Authorization": `Bearer ${accessToken}`,
               "Content-Type": "application/json"
             },
             body: JSON.stringify({ imagem_url: finalImageUrl })
@@ -337,7 +313,7 @@ export default function App() {
   };
 
   const handleEditProduct = async (updatedProd: Product, imageFile?: File) => {
-    if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey) {
+    if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey && accessToken) {
       try {
         const cleanUrl = supabaseConfig.url.replace(/\/$/, "");
         const productId = updatedProd.id;
@@ -353,7 +329,7 @@ export default function App() {
             method: "POST",
             headers: {
               "apikey": supabaseConfig.anonKey,
-              "Authorization": `Bearer ${supabaseConfig.anonKey}`,
+              "Authorization": `Bearer ${accessToken}`,
               "Content-Type": imageFile.type,
               "x-upsert": "true" // Overwrites existing photo with same ID
             },
@@ -373,14 +349,14 @@ export default function App() {
           imageUrl: finalImageUrl
         };
 
-        const dbProductBody = mapReactProductToDb(productToUpdate);
+        const dbProductBody = mapReactProductToDb(productToUpdate, instanceId);
 
         // Update in Supabase
         const response = await fetch(`${cleanUrl}/rest/v1/produtos?id=eq.${productId}`, {
           method: "PATCH",
           headers: {
             "apikey": supabaseConfig.anonKey,
-            "Authorization": `Bearer ${supabaseConfig.anonKey}`,
+            "Authorization": `Bearer ${accessToken}`,
             "Content-Type": "application/json"
           },
           body: JSON.stringify(dbProductBody)
@@ -408,14 +384,14 @@ export default function App() {
 
     setProducts(prev => prev.filter(p => p.id !== id));
 
-    if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey) {
+    if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey && accessToken) {
       try {
         const cleanUrl = supabaseConfig.url.replace(/\/$/, "");
         const response = await fetch(`${cleanUrl}/rest/v1/produtos?id=eq.${id}`, {
           method: "DELETE",
           headers: {
             "apikey": supabaseConfig.anonKey,
-            "Authorization": `Bearer ${supabaseConfig.anonKey}`
+            "Authorization": `Bearer ${accessToken}`
           }
         });
         if (!response.ok) throw new Error("Erro ao deletar no Supabase");
@@ -436,19 +412,20 @@ export default function App() {
 
     setCategories(prev => [...prev, c]);
 
-    if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey) {
+    if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey && accessToken) {
       try {
         const cleanUrl = supabaseConfig.url.replace(/\/$/, "");
         const dbCat = {
           id: cId,
           nome: c.name,
-          descricao: c.description
+          descricao: c.description,
+          user_id: instanceId
         };
         const response = await fetch(`${cleanUrl}/rest/v1/categorias`, {
           method: "POST",
           headers: {
             "apikey": supabaseConfig.anonKey,
-            "Authorization": `Bearer ${supabaseConfig.anonKey}`,
+            "Authorization": `Bearer ${accessToken}`,
             "Content-Type": "application/json"
           },
           body: JSON.stringify(dbCat)
@@ -464,14 +441,14 @@ export default function App() {
   const handleEditCategory = async (updatedCat: Category) => {
     setCategories(prev => prev.map(c => c.id === updatedCat.id ? updatedCat : c));
 
-    if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey) {
+    if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey && accessToken) {
       try {
         const cleanUrl = supabaseConfig.url.replace(/\/$/, "");
         const response = await fetch(`${cleanUrl}/rest/v1/categorias?id=eq.${updatedCat.id}`, {
           method: "PATCH",
           headers: {
             "apikey": supabaseConfig.anonKey,
-            "Authorization": `Bearer ${supabaseConfig.anonKey}`,
+            "Authorization": `Bearer ${accessToken}`,
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
@@ -501,14 +478,14 @@ export default function App() {
 
     setCategories(prev => prev.filter(c => c.id !== id));
 
-    if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey) {
+    if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey && accessToken) {
       try {
         const cleanUrl = supabaseConfig.url.replace(/\/$/, "");
         const response = await fetch(`${cleanUrl}/rest/v1/categorias?id=eq.${id}`, {
           method: "DELETE",
           headers: {
             "apikey": supabaseConfig.anonKey,
-            "Authorization": `Bearer ${supabaseConfig.anonKey}`
+            "Authorization": `Bearer ${accessToken}`
           }
         });
         if (!response.ok) throw new Error("Erro ao deletar categoria no Supabase");
@@ -523,14 +500,14 @@ export default function App() {
   const handleSaveChatbotConfig = async (newConfig: ChatbotConfig) => {
     setChatbotConfig(newConfig);
 
-    if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey) {
+    if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey && accessToken) {
       try {
         const cleanUrl = supabaseConfig.url.replace(/\/$/, "");
         const response = await fetch(`${cleanUrl}/rest/v1/chatbot_config?id=eq.default`, {
           method: "PATCH",
           headers: {
             "apikey": supabaseConfig.anonKey,
-            "Authorization": `Bearer ${supabaseConfig.anonKey}`,
+            "Authorization": `Bearer ${accessToken}`,
             "Content-Type": "application/json"
           },
           body: JSON.stringify(newConfig)
@@ -548,8 +525,8 @@ export default function App() {
     setSupabaseConfig(config);
     localStorage.setItem(`shop_master_${instanceId}_supabase_config`, JSON.stringify(config));
     
-    if (config.url && config.anonKey) {
-      loadDataFromSupabase(config.url, config.anonKey, config.bucket);
+    if (config.url && config.anonKey && accessToken) {
+      loadDataFromSupabase(config.url, config.anonKey, config.bucket, accessToken);
     } else {
       setIsSupabaseSynced(false);
       setSupabaseError(null);
@@ -558,17 +535,33 @@ export default function App() {
   };
 
   // Login session trigger
-  const handleLogin = (id: string) => {
-    sessionStorage.setItem("shop_master_active_instance", id);
-    setActiveInstanceId(id);
+  const handleLogin = (
+    userId: string,
+    email: string,
+    token: string,
+    config: SupabaseConfig
+  ) => {
+    sessionStorage.setItem("shop_master_active_instance", userId);
+    sessionStorage.setItem("shop_master_user_email", email);
+    sessionStorage.setItem("shop_master_access_token", token);
+    
+    setActiveInstanceId(userId);
+    setUserEmail(email);
+    setAccessToken(token);
+    setSupabaseConfig(config);
     setActiveTab("dashboard");
   };
 
   // Logout trigger
   const handleLogout = () => {
-    if (confirm("Deseja realmente sair da conta do seu chatbot atual?")) {
+    if (confirm("Deseja realmente sair da sua conta?")) {
       sessionStorage.removeItem("shop_master_active_instance");
+      sessionStorage.removeItem("shop_master_user_email");
+      sessionStorage.removeItem("shop_master_access_token");
+      
       setActiveInstanceId(null);
+      setUserEmail(null);
+      setAccessToken(null);
     }
   };
 
@@ -592,9 +585,9 @@ export default function App() {
             <div>
               <h1 className="font-display font-bold text-sm tracking-tight text-zinc-900">Stella Hub</h1>
               <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider">Instância:</span>
-                <span className="inline-flex items-center bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-md font-mono text-[9px] font-extrabold border border-emerald-100 uppercase">
-                  {activeInstanceId}
+                <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider">Conta:</span>
+                <span className="inline-flex items-center bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-md font-sans text-[9px] font-bold border border-emerald-100 lowercase">
+                  {userEmail || activeInstanceId}
                 </span>
                 
                 {/* Supabase status indicator badge */}
