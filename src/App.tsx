@@ -187,7 +187,6 @@ export default function App() {
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            ...defaultChatbotConfig,
             id: `default-${instanceId}`,
             user_id: instanceId
           })
@@ -562,22 +561,22 @@ export default function App() {
 
         let response;
         if (exists) {
-          // Se já existe, atualizamos com PATCH
+          // Se já existe, atualizamos com PATCH apenas o whatsapp
           response = await fetch(`${cleanUrl}/rest/v1/chatbot_config?user_id=eq.${instanceId}`, {
             method: "PATCH",
             headers,
             body: JSON.stringify({
-              ...newConfig,
+              whatsapp: newConfig.whatsapp,
               user_id: instanceId
             })
           });
         } else {
-          // Se não existe, inserimos com POST (Insert)
+          // Se não existe, inserimos com POST (Insert) com id, user_id e whatsapp
           response = await fetch(`${cleanUrl}/rest/v1/chatbot_config`, {
             method: "POST",
             headers,
             body: JSON.stringify({
-              ...newConfig,
+              whatsapp: newConfig.whatsapp,
               id: `default-${instanceId}`,
               user_id: instanceId
             })
