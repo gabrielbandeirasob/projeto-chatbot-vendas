@@ -540,22 +540,57 @@ export default function App() {
     if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey && accessToken) {
       try {
         const cleanUrl = supabaseConfig.url.replace(/\/$/, "");
-        const response = await fetch(`${cleanUrl}/rest/v1/chatbot_config?user_id=eq.${instanceId}`, {
-          method: "PATCH",
+        const headers = {
+          "apikey": supabaseConfig.anonKey,
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
+        };
+
+        // 1. Verificamos se já existe um registro para o usuário no banco de dados
+        const checkRes = await fetch(`${cleanUrl}/rest/v1/chatbot_config?user_id=eq.${instanceId}&select=user_id`, {
           headers: {
             "apikey": supabaseConfig.anonKey,
-            "Authorization": `Bearer ${accessToken}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            ...newConfig,
-            user_id: instanceId
-          })
+            "Authorization": `Bearer ${accessToken}`
+          }
         });
-        if (!response.ok) throw new Error("Erro ao salvar configuração no Supabase");
-      } catch (err) {
+
+        let exists = false;
+        if (checkRes.ok) {
+          const checkData = await checkRes.json();
+          exists = checkData && checkData.length > 0;
+        }
+
+        let response;
+        if (exists) {
+          // Se já existe, atualizamos com PATCH
+          response = await fetch(`${cleanUrl}/rest/v1/chatbot_config?user_id=eq.${instanceId}`, {
+            method: "PATCH",
+            headers,
+            body: JSON.stringify({
+              ...newConfig,
+              user_id: instanceId
+            })
+          });
+        } else {
+          // Se não existe, inserimos com POST (Insert)
+          response = await fetch(`${cleanUrl}/rest/v1/chatbot_config`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              ...newConfig,
+              id: `default-${instanceId}`,
+              user_id: instanceId
+            })
+          });
+        }
+
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`Erro ${response.status}: ${errText}`);
+        }
+      } catch (err: any) {
         console.error(err);
-        alert("⚠️ Parâmetros salvos localmente, mas falhou ao sincronizar com o Supabase.");
+        alert(`⚠️ Falha ao sincronizar com o Supabase: ${err.message}`);
       }
     }
   };
