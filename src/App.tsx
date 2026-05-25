@@ -188,7 +188,11 @@ export default function App() {
           },
           body: JSON.stringify({
             id: `default-${instanceId}`,
-            user_id: instanceId
+            user_id: instanceId,
+            identity: `Stella [${instanceId.substring(0, 8)}]`,
+            tone: defaultChatbotConfig.tone || "",
+            rules: defaultChatbotConfig.rules || "",
+            whatsapp: ""
           })
         });
       }
@@ -571,14 +575,17 @@ export default function App() {
             })
           });
         } else {
-          // Se não existe, inserimos com POST (Insert) com id, user_id e whatsapp
+          // Se não existe, inserimos com POST (Insert) com id, user_id, whatsapp e campos obrigatórios
           response = await fetch(`${cleanUrl}/rest/v1/chatbot_config`, {
             method: "POST",
             headers,
             body: JSON.stringify({
               whatsapp: newConfig.whatsapp,
               id: `default-${instanceId}`,
-              user_id: instanceId
+              user_id: instanceId,
+              identity: newConfig.identity || "Stella",
+              tone: newConfig.tone || "",
+              rules: newConfig.rules || ""
             })
           });
         }
