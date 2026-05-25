@@ -190,9 +190,17 @@ export default function App() {
             id: `default-${instanceId}`,
             user_id: instanceId,
             identity: `Stella [${instanceId.substring(0, 8)}]`,
-            tone: defaultChatbotConfig.tone || "",
-            rules: defaultChatbotConfig.rules || "",
-            whatsapp: ""
+            tone: defaultChatbotConfig.tone || "Prestativo",
+            rules: defaultChatbotConfig.rules || "Responder dúvidas sobre estoque.",
+            whatsapp: "",
+            showImage: true,
+            showimage: true,
+            showPrice: true,
+            showprice: true,
+            showActionButton: true,
+            showactionbutton: true,
+            actionButtonText: "Quero Comprar",
+            actionbuttontext: "Quero Comprar"
           })
         });
       }
@@ -575,7 +583,7 @@ export default function App() {
             })
           });
         } else {
-          // Se não existe, inserimos com POST (Insert) com id, user_id, whatsapp e campos obrigatórios
+          // Se não existe, inserimos com POST (Insert) com id, user_id, whatsapp e todos os campos obrigatórios (incluindo variações de letras)
           response = await fetch(`${cleanUrl}/rest/v1/chatbot_config`, {
             method: "POST",
             headers,
@@ -584,8 +592,16 @@ export default function App() {
               id: `default-${instanceId}`,
               user_id: instanceId,
               identity: newConfig.identity || "Stella",
-              tone: newConfig.tone || "",
-              rules: newConfig.rules || ""
+              tone: newConfig.tone || "Prestativo",
+              rules: newConfig.rules || "Responder dúvidas sobre estoque.",
+              showImage: true,
+              showimage: true,
+              showPrice: true,
+              showprice: true,
+              showActionButton: true,
+              showactionbutton: true,
+              actionButtonText: "Quero Comprar",
+              actionbuttontext: "Quero Comprar"
             })
           });
         }
