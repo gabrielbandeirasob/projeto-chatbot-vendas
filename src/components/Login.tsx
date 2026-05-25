@@ -1,6 +1,6 @@
 import React, { useState, FormEvent, useEffect } from "react";
-import { Bot, Store, Lock, ArrowRight, Sparkles, Mail } from "lucide-react";
-import { motion } from "motion/react";
+import { Bot, Store, Lock, ArrowRight, Sparkles, Mail, Database, ChevronDown, ChevronUp, Check } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
 import { SupabaseConfig } from "../types";
 
 interface LoginProps {
@@ -22,12 +22,14 @@ export default function Login({ onLogin }: LoginProps) {
   const [supabaseUrl, setSupabaseUrl] = useState("");
   const [supabaseAnonKey, setSupabaseAnonKey] = useState("");
   const [supabaseBucket, setSupabaseBucket] = useState("produtos");
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   // Load configuration from env or localStorage
   useEffect(() => {
-    // 1. Try to load from environment variables (standard Vite setup)
-    const envUrl = ((import.meta as any).env?.VITE_SUPABASE_URL || "").trim();
-    const envKey = ((import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "").trim();
+    // 1. Try to load from environment variables (standard Vite setup) with secure defaults
+    const envUrl = ((import.meta as any).env?.VITE_SUPABASE_URL || "https://umzkpzygbtzqikkeswbp.supabase.co").trim();
+    const envKey = ((import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtemtwenlnYnR6cWlra2Vzd2JwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk2MTEzNTQsImV4cCI6MjA5NTE4NzM1NH0.StNGn7BPNyOPaES6Nn-n12JhjeHdOj6vOwYE8XUCws8").trim();
 
     if (envUrl && envKey) {
       setSupabaseUrl(envUrl);
@@ -48,6 +50,26 @@ export default function Login({ onLogin }: LoginProps) {
       console.error("Erro ao carregar configurações do localStorage:", e);
     }
   }, []);
+
+  const handleSaveConfig = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!supabaseUrl.trim() || !supabaseAnonKey.trim()) {
+      setError("Por favor, insira a URL e a Anon Key do Supabase.");
+      return;
+    }
+    const cleanUrl = supabaseUrl.trim().replace(/\/$/, "");
+    const cleanKey = supabaseAnonKey.trim();
+    
+    const config: SupabaseConfig = {
+      url: cleanUrl,
+      anonKey: cleanKey,
+      bucket: supabaseBucket.trim()
+    };
+    localStorage.setItem("shop_master_global_supabase_config", JSON.stringify(config));
+    setSaveSuccess(true);
+    setError(null);
+    setTimeout(() => setSaveSuccess(false), 2000);
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
