@@ -59,7 +59,7 @@ export default function Dashboard({ products, categories }: DashboardProps) {
         <div>
           <h2 className="text-2xl font-semibold font-display tracking-tight">Visão Geral do Hub</h2>
           <p className="text-emerald-100 mt-1 max-w-xl">
-            Acompanhe o desempenho do seu estoque em tempo real. Adicione produtos, atualize quantidades e teste seu Agente de IA com recomendações em tempo real.
+            Acompanhe o desempenho do seu estoque em tempo real. Adicione produtos, atualize quantidades e gerencie o catálogo de produtos que abastece o seu chatbot do n8n.
           </p>
         </div>
         <div className="flex items-center gap-2 bg-white/10 backdrop-blur-md px-4 py-2 rounded-xl text-sm font-medium self-start md:self-auto border border-white/10">

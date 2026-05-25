@@ -8,7 +8,6 @@ import {
 import Dashboard from "./components/Dashboard";
 import Products from "./components/Products";
 import Categories from "./components/Categories";
-import ChatbotConfigPanel from "./components/ChatbotConfigPanel";
 import Login from "./components/Login";
 
 // Lucide Icons
@@ -16,7 +15,6 @@ import {
   BarChart3, 
   Package, 
   Layers, 
-  Bot, 
   Heart, 
   Store,
   LogOut,
@@ -77,7 +75,7 @@ export default function App() {
   const [supabaseLoading, setSupabaseLoading] = useState(false);
   const [supabaseError, setSupabaseError] = useState<"connection_failed" | "tables_missing" | null>(null);
 
-  const [activeTab, setActiveTab] = useState<"dashboard" | "products" | "categories" | "chatbot">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "products" | "categories">("dashboard");
 
   // Load Namespaced LocalStorage data as secure fallback
   const loadFromLocalStorage = () => {
@@ -657,19 +655,6 @@ export default function App() {
               <Layers className="w-4 h-4 text-emerald-600" />
               <span className="hidden sm:inline">Categorias</span>
             </button>
-
-            <button
-              id="tab-chatbot"
-              onClick={() => setActiveTab("chatbot")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === "chatbot"
-                  ? "bg-white text-zinc-950 shadow-3xs hover:bg-white"
-                  : "text-zinc-500 hover:text-zinc-900"
-              }`}
-            >
-              <Bot className="w-4 h-4 text-emerald-600 animate-pulse" />
-              <span>Personalizar IA</span>
-            </button>
           </nav>
 
           {/* Quick actions: Logout */}
@@ -727,15 +712,6 @@ export default function App() {
                 onAddCategory={handleAddCategory}
                 onEditCategory={handleEditCategory}
                 onDeleteCategory={handleDeleteCategory}
-              />
-            )}
-
-            {activeTab === "chatbot" && (
-              <ChatbotConfigPanel 
-                config={chatbotConfig}
-                onSaveConfig={handleSaveChatbotConfig}
-                supabaseConfig={supabaseConfig}
-                activeInstanceId={activeInstanceId}
               />
             )}
           </motion.div>
