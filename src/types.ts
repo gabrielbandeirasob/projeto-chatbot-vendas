@@ -20,13 +20,14 @@ export interface Category {
 }
 
 export interface ChatbotConfig {
-  identity: string;
-  tone: string;
-  rules: string;
-  showImage: boolean;
-  showPrice: boolean;
-  showActionButton: boolean;
-  actionButtonText: string;
+  identity?: string;
+  tone?: string;
+  rules?: string;
+  showImage?: boolean;
+  showPrice?: boolean;
+  showActionButton?: boolean;
+  actionButtonText?: string;
+  whatsapp?: string;
 }
 
 export interface ChatMessage {

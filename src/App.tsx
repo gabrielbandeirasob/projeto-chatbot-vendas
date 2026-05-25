@@ -8,6 +8,7 @@ import {
 import Dashboard from "./components/Dashboard";
 import Products from "./components/Products";
 import Categories from "./components/Categories";
+import Settings from "./components/Settings";
 import Login from "./components/Login";
 
 // Lucide Icons
@@ -19,7 +20,8 @@ import {
   Store,
   LogOut,
   Database,
-  Loader2
+  Loader2,
+  Settings as SettingsIcon
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -84,7 +86,7 @@ export default function App() {
   const [supabaseLoading, setSupabaseLoading] = useState(false);
   const [supabaseError, setSupabaseError] = useState<"connection_failed" | "tables_missing" | null>(null);
 
-  const [activeTab, setActiveTab] = useState<"dashboard" | "products" | "categories">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "products" | "categories" | "settings">("dashboard");
 
   // Load Namespaced LocalStorage data as secure fallback
   const loadFromLocalStorage = () => {
@@ -158,8 +160,43 @@ export default function App() {
       const catData = await catRes.json();
       const mappedCategories = catData.map(mapDbCategoryToReact);
 
+      // 3. Fetch chatbot config
+      const configRes = await fetch(`${cleanUrl}/rest/v1/chatbot_config?user_id=eq.${instanceId}&select=*`, { headers });
+      if (!configRes.ok) {
+        const text = await configRes.text();
+        if (text.includes("does not exist")) {
+          setSupabaseError("tables_missing");
+          setIsSupabaseSynced(false);
+          loadFromLocalStorage();
+          return;
+        }
+        throw new Error("Erro na tabela chatbot_config");
+      }
+      const configData = await configRes.json();
+
+      // If configuration table is completely empty, insert a fallback row
+      let activeConfig = defaultChatbotConfig;
+      if (configData && configData.length > 0) {
+        activeConfig = configData[0];
+      } else {
+        // Seed default config into Supabase
+        await fetch(`${cleanUrl}/rest/v1/chatbot_config`, {
+          method: "POST",
+          headers: {
+            ...headers,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            ...defaultChatbotConfig,
+            id: `default-${instanceId}`,
+            user_id: instanceId
+          })
+        });
+      }
+
       setProducts(mappedProducts);
       setCategories(mappedCategories);
+      setChatbotConfig(activeConfig);
       setIsSupabaseSynced(true);
       setSupabaseError(null);
     } catch (err: any) {
@@ -503,19 +540,22 @@ export default function App() {
     if (isSupabaseSynced && supabaseConfig.url && supabaseConfig.anonKey && accessToken) {
       try {
         const cleanUrl = supabaseConfig.url.replace(/\/$/, "");
-        const response = await fetch(`${cleanUrl}/rest/v1/chatbot_config?id=eq.default`, {
+        const response = await fetch(`${cleanUrl}/rest/v1/chatbot_config?user_id=eq.${instanceId}`, {
           method: "PATCH",
           headers: {
             "apikey": supabaseConfig.anonKey,
             "Authorization": `Bearer ${accessToken}`,
             "Content-Type": "application/json"
           },
-          body: JSON.stringify(newConfig)
+          body: JSON.stringify({
+            ...newConfig,
+            user_id: instanceId
+          })
         });
         if (!response.ok) throw new Error("Erro ao salvar configuração no Supabase");
       } catch (err) {
         console.error(err);
-        alert("⚠️ Parâmetros da IA salvos localmente, mas falhou ao sincronizar com o Supabase.");
+        alert("⚠️ Parâmetros salvos localmente, mas falhou ao sincronizar com o Supabase.");
       }
     }
   };
@@ -648,6 +688,19 @@ export default function App() {
               <Layers className="w-4 h-4 text-emerald-600" />
               <span className="hidden sm:inline">Categorias</span>
             </button>
+
+            <button
+              id="tab-settings"
+              onClick={() => setActiveTab("settings")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-semibold transition-all cursor-pointer ${
+                activeTab === "settings"
+                  ? "bg-white text-zinc-950 shadow-3xs"
+                  : "text-zinc-500 hover:text-zinc-900"
+              }`}
+            >
+              <SettingsIcon className="w-4 h-4 text-emerald-600" />
+              <span>Configurações</span>
+            </button>
           </nav>
 
           {/* Quick actions: Logout */}
@@ -705,6 +758,16 @@ export default function App() {
                 onAddCategory={handleAddCategory}
                 onEditCategory={handleEditCategory}
                 onDeleteCategory={handleDeleteCategory}
+              />
+            )}
+
+            {activeTab === "settings" && (
+              <Settings 
+                config={chatbotConfig}
+                onSaveConfig={handleSaveChatbotConfig}
+                supabaseConfig={supabaseConfig}
+                activeInstanceId={activeInstanceId}
+                userEmail={userEmail || ""}
               />
             )}
           </motion.div>
